@@ -1,0 +1,467 @@
+<canvas id="canvas" width="500" height="500"></canvas>
+<script src="priorityQueue.js"></script>
+<script>
+    "use strict"
+
+    const blocks = {
+        BLOCK: 0,
+        PATH: 1,
+        START: 2,
+        GOAL: 3
+    };
+
+    class Pathfinder {
+        constructor(map) {
+            this.canvas = document.getElementById('canvas');
+            this.ctx = document.getElementById('canvas').getContext('2d');
+            this.map = map;
+            this.blockSize = 500 / map.length;
+            this.visited = [];
+            this.queue = new PriorityQueue();
+            this.route = [];
+            this.entities = [];
+            this.cannons = [];
+            this.bullets = [];
+            this.goal = {
+                x: 0,
+                y: 0
+            };
+            this.start = {
+                x: 0,
+                y: 0
+            };
+        }
+
+        init() {
+            this.map.forEach((line, y) => {
+                this.visited.push(new Array(map[y].length));
+                line.forEach((cell, x) => {
+                    this.visited[y][x] = false;
+                    if (cell === blocks.START) {
+                        this.start.x = x;
+                        this.start.y = y;
+                        this.visited[y][x] = true;
+                    }
+
+                    if (cell === blocks.GOAL) {
+                        this.goal.x = x;
+                        this.goal.y = y;
+                    }
+                });
+            });
+
+            this.calculateRoute();
+            window.requestAnimationFrame(this.update.bind(this));
+        }
+
+        // -- pathfinder alg
+
+        calculateRoute() {
+            // A* algorithm
+            let current;
+            this.queue.enqueue({
+                x: this.start.x,
+                y: this.start.y,
+                fromStart: 0,
+                parent: null
+            }, Infinity);
+            while (!this.queue.isEmpty()) {
+                current = this.queue.dequeue().element;
+                if (this.hasFinished(current.x, current.y)) {
+                    while (current.parent) {
+                        this.route.push(current);
+                        current = current.parent;
+                    }
+                    this.route = this.route.reverse();
+                    break;
+                }
+                this.visited[current.y][current.x] = true;
+                const nodes = this.getNodesAround(current.x, current.y);
+                nodes.forEach(node => {
+                    if (!this.visited[node.y][node.x]) {
+                        node.fromStart = current.fromStart + 1;
+                        node.parent = current;
+                        const nodePriority = node.fromStart + this.manhattanDistance(node, this.goal);
+                        this.queue.enqueue(node, nodePriority);
+                    }
+                });
+            }
+            this.routeClone = [...this.route]
+        }
+
+        getNodesAround(x, y) {
+            const nodes = [];
+
+            if (y > 0 && this.map[y - 1][x] > blocks.BLOCK) {
+                nodes.push({
+                    y: y - 1,
+                    x: x
+                });
+            }
+
+            if (x > 0 && this.map[y][x - 1] > blocks.BLOCK) {
+                nodes.push({
+                    y: y,
+                    x: x - 1
+                });
+            }
+
+            if (y < this.map.length - 1 && this.map[y + 1][x] > blocks.BLOCK) {
+                nodes.push({
+                    y: y + 1,
+                    x: x
+                });
+            }
+
+            if (x < this.map[y].length - 1 && this.map[y][x + 1] > blocks.BLOCK) {
+                nodes.push({
+                    y: y,
+                    x: x + 1
+                });
+            }
+            return nodes;
+        }
+
+        manhattanDistance(a, b) {
+            return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+        }
+
+        // -- Canvas
+
+        update(time) {
+            this.time = time;
+
+            this.ctx.clearRect(0, 0, 500, 500);
+            this.map.forEach((line, y) => {
+                line.forEach((cell, x) => {
+                    this.drawCell(cell, x, y);
+                });
+            });
+
+            this.entities.forEach(entity => this.updateEntity(entity));
+            this.bullets.forEach(bullet => this.updateBullet(bullet));
+            this.cannons.forEach(cannon => this.updateCannon(cannon));
+
+            window.requestAnimationFrame(this.update.bind(this));
+        }
+
+        drawRoute() {
+            this.routeClone.forEach((cell, i) => {
+                this.ctx.fillStyle = "red";
+                this.ctx.fillText(i, cell.x * this.blockSize + this.blockSize / 4, cell.y * this.blockSize + this.blockSize / 4);
+                this.ctx.fillRect(cell.x * this.blockSize + this.blockSize / 4, cell.y * this.blockSize + this.blockSize / 4, this.blockSize / 2, this.blockSize / 2);
+            })
+        }
+
+        drawCell(id, x, y) {
+            switch (id) {
+                case blocks.BLOCK:
+                    this.ctx.fillStyle = "#222222";
+                    break;
+                case blocks.PATH:
+                    this.ctx.fillStyle = "#FFFFFF";
+                    break;
+                case blocks.START:
+                    this.ctx.fillStyle = "#6dffa1";
+                    break;
+                case blocks.GOAL:
+                    this.ctx.fillStyle = "#3cb7ff";
+                    break;
+            }
+
+            this.ctx.fillRect(x * this.blockSize, y * this.blockSize, this.blockSize, this.blockSize);
+        }
+
+        addEntity() {
+            const entity = {
+                x: this.start.x * this.blockSize + this.blockSize * 0.25,
+                y: this.start.y * this.blockSize + this.blockSize * 0.25,
+                radius: this.blockSize / 4,
+                xGoal: null,
+                yGoal: null,
+                route: [...this.route],
+                speed: 200,
+                hp: 10,
+                lastUpdated: 0
+            };
+            this.entities.push(entity);
+        }
+
+        drawEntity(entity) {
+            this.ctx.fillStyle = "#000000";
+
+            const [x, y] = [
+                entity.x + this.blockSize / 4,
+                entity.y + this.blockSize / 4
+            ];
+
+            this.ctx.beginPath();
+            this.ctx.arc(x, y, entity.radius, 0, 2 * Math.PI);
+            this.ctx.fill();
+        }
+
+        updateEntityGoal(entity) {
+            const currentTime = Math.floor(this.time / entity.speed);
+            if (currentTime !== entity.lastUpdated) {
+                entity.lastUpdated = currentTime;
+            } else {
+                return;
+            }
+
+            const nextNode = entity.route.shift();
+            if (nextNode) {
+                entity.xGoal = nextNode.x;
+                entity.yGoal = nextNode.y;
+            }
+        }
+
+        updateEntity(entity) {
+            this.updateEntityGoal(entity);
+
+            if (entity.xGoal !== null && entity.yGoal !== null) {
+                const step = this.blockSize / 60 / entity.speed * 1000;
+                const xGoal = entity.xGoal * this.blockSize + this.blockSize * 0.25;
+                const yGoal = entity.yGoal * this.blockSize + this.blockSize * 0.25;
+
+                if (entity.x < xGoal) {
+                    entity.x = Math.min(xGoal, entity.x + step);
+                }
+
+                if (entity.y < yGoal) {
+                    entity.y = Math.min(yGoal, entity.y + step);
+                }
+
+                if (entity.x > xGoal) {
+                    entity.x = Math.max(xGoal, entity.x - step);
+                }
+
+                if (entity.y > yGoal) {
+                    entity.y = Math.max(yGoal, entity.y - step);
+                }
+            }
+
+            this.drawEntity(entity);
+        }
+
+        hasFinished(x, y) {
+            return x === this.goal.x && y === this.goal.y
+        }
+
+        addCannon(x, y) {
+            if (this.map[y][x] !== blocks.BLOCK) {
+                return;
+            }
+
+            const cannon = {
+                x,
+                y,
+                fireDelay: 500,
+                shots: 0,
+                velocity: 15,
+                target: null,
+                power: 1
+            };
+            this.cannons.push(cannon);
+        }
+
+        updateCannon(cannon) {
+            this.updateCannonTarget(cannon);
+            this.drawCannon(cannon);
+
+            if (cannon.target && this.checkDelay(cannon)) {
+                this.fireCannon(cannon);
+            }
+
+        }
+
+        checkDelay(cannon) {
+            const shots = Math.floor(this.time / cannon.fireDelay);
+
+            if (shots === cannon.shots) {
+                return false;
+            }
+
+            cannon.shots = shots;
+
+            return true;
+        }
+
+        updateCannonTarget(cannon) {
+            if (this.entities[0]) {
+                cannon.target = this.entities[0];
+            } else {
+                cannon.target = null;
+            }
+        }
+
+        drawCannon(cannon) {
+            const [cx, cy, radius] = [
+                cannon.x * this.blockSize + this.blockSize * 0.50,
+                cannon.y * this.blockSize + this.blockSize * 0.50,
+                this.blockSize / 4,
+            ];
+            const [x, y, width, height] = [
+                cx - this.blockSize / 8,
+                cy - this.blockSize / 16,
+                this.blockSize / 4,
+                this.blockSize / 1.8,
+            ]
+
+            // draw basis
+            this.ctx.fillStyle = "#DDDDDD";
+            this.ctx.beginPath();
+            this.ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
+            this.ctx.fill();
+
+            // rotate and draw cannon
+            let rotation = 0;
+            if (cannon.target) {
+                const tx = cannon.target.x + cannon.target.radius;
+                const ty = cannon.target.y + cannon.target.radius;
+                const radian = Math.atan2(ty - cy, tx - cx);
+                rotation = this.toRadian(this.toAngle(radian) - 90);
+            }
+
+            this.ctx.save()
+            this.ctx.translate(cx, cy);
+            this.ctx.rotate(rotation);
+            this.ctx.fillStyle = "#999999";
+            this.ctx.fillRect(-width / 2, -width / 2, width, height);
+            this.ctx.restore();
+        }
+
+        fireCannon(cannon) {
+            let cell = cannon.target;
+            if (cannon.target.route.length > 0) {
+                cell = this.mapToCord(cannon.target.route[0]);
+            }
+
+            const [cx, cy, tx, ty] = [
+                cannon.x * this.blockSize + this.blockSize * 0.50,
+                cannon.y * this.blockSize + this.blockSize * 0.50,
+                cell.x + cannon.target.radius,
+                cell.y + cannon.target.radius
+            ];
+
+            const radian = Math.atan2(ty - cy, tx - cx);
+            const angle = this.toRadian(this.toAngle(radian));
+
+            const bullet = {
+                x: cx,
+                y: cy,
+                power: cannon.power,
+                velocity: cannon.velocity,
+                angle,
+                target: cannon.target,
+                radius: this.blockSize / 16
+            };
+
+            this.bullets.push(bullet);
+        }
+
+        mapToCord(item) {
+            console.log(item);
+            return {
+                x: item.x * this.blockSize + this.blockSize * 0.25,
+                y: item.y * this.blockSize + this.blockSize * 0.25
+            }
+        }
+
+        updateBullet(bullet) {
+
+
+            if (bullet.target && this.checkCollision(bullet)) {
+                this.hitTarget(bullet);
+                this.removeFromList(bullet, this.bullets);
+                return;
+            }
+
+            if (this.isOutOfBounds(bullet)) {
+                this.removeFromList(bullet, this.bullets);
+            }
+
+            this.drawBullet(bullet);
+        }
+
+        checkCollision(bullet) {
+            const radiusSum = bullet.radius + bullet.target.radius;
+
+            return this.manhattanDistance(bullet, bullet.target) - bullet.velocity - radiusSum <= 0;
+        }
+
+        removeFromList(item, list) {
+            const index = list.indexOf(item);
+            list.splice(index, 1);
+        }
+
+        hitTarget(bullet) {
+            bullet.target.hp -= bullet.power;
+            if (bullet.target.hp <= 0) {
+                this.removeFromList(bullet.target, this.entities);
+            }
+        }
+
+        isOutOfBounds(item) {
+            let extra = 0;
+            if (item.velocity) {
+                extra += item.velocity;
+            }
+
+            return item.x - extra < 0 ||
+                item.y - extra < 0 ||
+                item.x > this.map[0].length * this.blockSize + extra ||
+                item.y > this.map.length * this.blockSize + extra;
+        }
+
+        drawBullet(bullet) {
+            bullet.x = bullet.velocity * Math.cos(bullet.angle) + bullet.x;
+            bullet.y = bullet.velocity * Math.sin(bullet.angle) + bullet.y;
+
+            this.ctx.fillStyle = "#FF0000";
+            this.ctx.beginPath();
+            this.ctx.arc(bullet.x, bullet.y, bullet.radius, 0, 2 * Math.PI);
+            this.ctx.fill();
+        }
+
+        toAngle(radian) {
+            return radian * 180 / Math.PI;
+        }
+
+        toRadian(angle) {
+            return angle * Math.PI / 180;
+        }
+    }
+
+
+    // -- Run
+
+    const map = [
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0],
+        [0, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0],
+        [0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 0],
+        [0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0],
+        [0, 1, 0, 1, 1, 1, 1, 0, 0, 1, 0],
+        [0, 1, 1, 1, 0, 1, 0, 0, 0, 1, 0],
+        [0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0],
+        [0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 0],
+        [0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0],
+        [0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0],
+        [0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0],
+        [0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0],
+        [0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0],
+        [0, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0]
+    ];
+
+    const pathfinder = new Pathfinder(map);
+    pathfinder.init();
+    for (let i = 0; i < 10; i++) {
+        setTimeout(() => {
+            pathfinder.addEntity();
+        }, i * 1000)
+    }
+
+    pathfinder.addCannon(2, 0);
+    pathfinder.addCannon(4, 0);
+
+</script>
