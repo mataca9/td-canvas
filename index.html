@@ -1,4 +1,7 @@
 <canvas id="canvas" width="500" height="500"></canvas>
+<hr/>
+<button onclick="pathfinder.addEnemy()">Add enemy</button>
+<button onclick="pathfinder.addBoss()">Add boss</button>
 <script src="priorityQueue.js"></script>
 <script>
     "use strict"
@@ -30,6 +33,9 @@
                 x: 0,
                 y: 0
             };
+
+            // Click handler
+            this.canvas.addEventListener('click', this.mapClick.bind(this), false);
         }
 
         init() {
@@ -172,7 +178,7 @@
             this.ctx.fillRect(x * this.blockSize, y * this.blockSize, this.blockSize, this.blockSize);
         }
 
-        addEntity() {
+        addEnemy() {
             const entity = {
                 x: this.start.x * this.blockSize + this.blockSize * 0.25,
                 y: this.start.y * this.blockSize + this.blockSize * 0.25,
@@ -182,13 +188,30 @@
                 route: [...this.route],
                 speed: 200,
                 hp: 10,
-                lastUpdated: 0
+                lastUpdated: 0,
+                color: "#000000"
+            };
+            this.entities.push(entity);
+        }
+
+        addBoss() {
+            const entity = {
+                x: this.start.x * this.blockSize + this.blockSize * 0.25,
+                y: this.start.y * this.blockSize + this.blockSize * 0.25,
+                radius: this.blockSize / 2,
+                xGoal: null,
+                yGoal: null,
+                route: [...this.route],
+                speed: 500,
+                hp: 50,
+                lastUpdated: 0,
+                color: "#ff0000"
             };
             this.entities.push(entity);
         }
 
         drawEntity(entity) {
-            this.ctx.fillStyle = "#000000";
+            this.ctx.fillStyle = entity.color;
 
             const [x, y] = [
                 entity.x + this.blockSize / 4,
@@ -212,6 +235,8 @@
             if (nextNode) {
                 entity.xGoal = nextNode.x;
                 entity.yGoal = nextNode.y;
+            } else {
+                this.entities.splice(this.entities.find(e => e === entity), 1);
             }
         }
 
@@ -360,7 +385,6 @@
         }
 
         mapToCord(item) {
-            console.log(item);
             return {
                 x: item.x * this.blockSize + this.blockSize * 0.25,
                 y: item.y * this.blockSize + this.blockSize * 0.25
@@ -430,6 +454,19 @@
         toRadian(angle) {
             return angle * Math.PI / 180;
         }
+
+        // -- Events
+        mapClick(e) {
+            const elemLeft = this.canvas.offsetLeft + this.canvas.clientLeft;
+            const elemTop = this.canvas.offsetTop + this.canvas.clientTop;
+
+            const x = Math.floor((event.pageX - elemLeft) / this.blockSize);
+            const y = Math.floor((event.pageY - elemTop) / this.blockSize);
+
+            if(!this.cannons.some(c => c.x === x && c.y === y)) {
+                pathfinder.addCannon(x, y);
+            }
+        }
     }
 
 
@@ -457,7 +494,7 @@
     pathfinder.init();
     for (let i = 0; i < 10; i++) {
         setTimeout(() => {
-            pathfinder.addEntity();
+            pathfinder.addEnemy();
         }, i * 1000)
     }
 
